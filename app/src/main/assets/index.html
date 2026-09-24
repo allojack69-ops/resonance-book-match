@@ -94,8 +94,27 @@ function chooseQuestions(){
   return scored.slice(0,limit).map(x=>x.idx);
 }
 function start(){
-  sessionGraph={}; sessionAnswers=[]; ratings={}; recs=[]; qpos=0; questionOrder=chooseQuestions();
-  app.innerHTML=`<div class="card"><h1>Твоя карта резонансу</h1><p class="muted">V2 відновлює не список тегів, а зв'язки між темами, стилем, темпом і типом конфлікту.</p><div class="note">Наступні стимули адаптуються до того, де модель найменш упевнена. WHAT і HOW навчаються окремо через граф сигналів.</div><button class="primary" onclick="show()">Почати</button></div>`;
+  sessionGraph={}; sessionAnswers=[]; ratings={}; recs=[]; qpos=0; questionOrder=[];
+  const pool=B.slice().sort(()=>Math.random()-.5).slice(0,Math.min(12,B.length));
+  window.quickBooks=pool;
+  app.innerHTML=`<div class="card"><h1>Твоя карта резонансу</h1><p class="muted">Без анкет і довгих текстів. Просто відміть книги, які тобі хочеться читати.</p><div class="note">Це короткий book-first сигнал: <b>Хочу читати</b>, <b>Не знаю</b> або <b>Не хочу</b>. Граф сам відновлює пов'язані патерни.</div><div id="quickBooks">${pool.map((b,n)=>`<div class="book" id="qb-${n}"><div class="title">${b[0]}</div><div class="author">${b[1]}</div><div class="desc">${b[3]}</div><div class="actions"><button class="primary" onclick="quickRate(${n},1)">Хочу читати</button><button class="secondary" onclick="quickRate(${n},0)">Не знаю</button><button class="secondary" onclick="quickRate(${n},-1)">Не хочу</button></div></div>`).join('')}</div><button class="primary" onclick="quickFinish()">Показати резонанс</button></div>`;
+}
+function quickRate(n,value){
+  const b=quickBooks[n], row=document.getElementById('qb-'+n);
+  row.dataset.value=String(value);
+  row.querySelectorAll('button').forEach(x=>x.classList.remove('sel'));
+  const buttons=row.querySelectorAll('button');
+  buttons[value===1?0:value===0?1:2].classList.add('sel');
+}
+function quickFinish(){
+  const rows=quickBooks.map((b,n)=>({b,n,value:Number(document.getElementById('qb-'+n).dataset.value||0)})).filter(x=>x.value!==0);
+  if(!rows.length){alert('Відміть хоча б одну книгу.');return}
+  sessionGraph={};
+  for(const x of rows) for(const [k,w] of Object.entries(x.b[2]||{})){
+    sessionGraph[k]=(sessionGraph[k]||0)+x.value*Number(w);
+  }
+  sessionAnswers=rows.map(x=>({book:x.b[0],signal:x.value}));
+  result();
 }
 function show(){
   const idx=questionOrder[qpos], q=Q[idx];
