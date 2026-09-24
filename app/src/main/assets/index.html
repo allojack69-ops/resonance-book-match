@@ -12,6 +12,7 @@
 </head>
 <body><div class="wrap"><div class="brand">РЕЗОНАНС / BOOK MATCH</div><div id="app"></div></div>
 <script>
+
 const STORAGE_KEY='resonance.feedback.v1';
 const Q=[
 ["Коли герой робить складний моральний вибір, що тобі цікавіше?","Що відбувається всередині людини","До чого рішення приводить у світі","person_vs_self","choice_vs_consequence"],
@@ -37,24 +38,157 @@ const B=[
 ["Пікнік на узбіччі","Аркадій і Борис Стругацькі",{"truth_vs_uncertainty":1,"mystery_vs_structure":1,"idea_vs_reality":.9,"choice_vs_consequence":.7,"depth_vs_pace":.6,"ambiguity_vs_resolution":.8},"Зона з незрозумілими явищами змушує людей жити поруч із незбагненним."],
 ["Місто і місто","Чайна М'євіль",{"perspective_vs_truth":1,"truth_vs_uncertainty":.9,"mystery_vs_structure":1,"identity_vs_society":.8,"idea_vs_style":.8,"ambiguity_vs_resolution":.7},"Два міста існують поруч, але мешканці навчені не бачити одне одного."]
 ];
-let i=0,g={},answers=[],ratings={};
-function add(k){g[k]=(g[k]||0)+1}
-function start(){app.innerHTML=`<div class="card"><h1>Твоя карта резонансу</h1><p class="muted">Це не психологічний тест. Система пробує відновити твої читацькі уподобання з реакцій, а потім перевіряє себе на реальних книгах.</p><div class="note">Не шукай “правильну” відповідь. Обирай те, що тобі справді цікавіше.</div><button class="primary" onclick="show()">Почати</button></div>`}
-function show(){let q=Q[i];app.innerHTML=`<div class="card"><div class="muted">Стимул ${i+1} з ${Q.length}</div><div class="bar"><div class="fill" style="width:${i/Q.length*100}%"></div></div><div class="q">${q[0]}</div><button class="opt" onclick="ans(0)">${q[1]}</button><button class="opt" onclick="ans(1)">${q[2]}</button><div class="muted small" style="margin-top:16px">Можеш пропустити, якщо жоден варіант не відгукується.</div><button class="secondary" style="margin-top:8px" onclick="skip()">Жоден / пропустити</button></div>`}
-function ans(x){let q=Q[i];add(q[3+x]);answers.push({stimulus:i+1,choice:x+1,relation:q[3+x],skipped:false});i++;i<Q.length?show():result()}
-function skip(){answers.push({stimulus:i+1,choice:null,relation:null,skipped:true});i++;i<Q.length?show():result()}
-function score(b){let total=0,parts=[];for(const [k,w] of Object.entries(b[2])){let hit=(g[k]||0)*w;if(hit){total+=hit;parts.push([k,+hit.toFixed(3)])}}return {total,parts:parts.sort((a,b)=>b[1]-a[1])}}
-function level(n){return Math.max(0,Math.min(100,Math.round(n/8*100)))}
-function result(){let ranked=B.map((b,n)=>({b,n,...score(b)})).sort((a,b)=>b.total-a.total);let seeds=ranked.filter(x=>x.n<8),extras=ranked.filter(x=>x.n>=8);let z=[...seeds.slice(0,1),...extras.slice(0,2)];window.z=z;app.innerHTML=`<div class="card result-head"><h1>Твоя карта резонансу</h1><p class="muted">Робоча модель читацьких уподобань: що тебе тягне читати і які патерни це пов'язують.</p><div>${Object.entries(g).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k,v])=>`<span class="tag">${k.replaceAll('_',' ')} · ${v}</span>`).join('')}</div><div class="statrow"><div class="stat"><span class="muted">Сигналів</span><b>${Object.keys(g).length}</b></div><div class="stat"><span class="muted">Реакцій</span><b>${answers.length}</b></div></div></div><div class="card"><h2>Рекомендації</h2><p class="muted">Три ролі: <b>Direct match</b>, <b>Bridge</b> і <b>Discovery</b>. Оцінка показує прогноз моделі, а не “об'єктивну якість” книги.</p><div class="note">Каталог: <b>${B.length} книг</b>. Рекомендації тепер містять щонайменше 2 книги з розширеного каталогу.</div>${z.map((x,idx)=>bookCard(x,idx)).join('')}<div class="note">Для непрочитаної книги не треба оцінювати “наскільки сподобалась”. Ти оцінюєш лише бажання прочитати: <b>Не цікаво / Трохи цікаво / Цікаво / Дуже цікаво</b>. Якщо читав — тоді оцінюєш реальне враження.</div><div class="actions"><button class="primary" onclick="save()">Зберегти відгук</button><button class="secondary" onclick="restart()">Пройти ще раз</button></div><div id="saved"></div></div>`}
-function role(idx){return idx===0?'DIRECT MATCH':idx===1?'BRIDGE':'DISCOVERY'}
-function bookCard(x,idx){return `<div class="book"><span class="pill">${role(idx)}</span><div class="title" style="margin-top:10px">${x.b[0]}</div><div class="author">${x.b[1]}</div><div class="score">Прогноз резонансу · ${level(x.total)}%</div><div class="bar" style="margin:9px 0 12px"><div class="fill" style="width:${level(x.total)}%"></div></div><div class="desc">${x.b[3]}</div><div class="feedback"><div class="feedback-title">1. Ти читав цю книгу?</div><button id="unread-${x.n}" onclick="setMode(${x.n},'unread',this)">Не читав</button><button id="read-${x.n}" onclick="setMode(${x.n},'read',this)">Читав</button><div id="rate-${x.n}"></div></div></div>`}
+
+const PROFILE_KEY='resonance.user.profile.v2';
+const LEGACY_KEY='resonance.feedback.v1';
+const MAX_HISTORY=200;
+let profile=null, sessionGraph={}, sessionAnswers=[], questionOrder=[], qpos=0, ratings={}, recs=[];
+
+function uid(){return 'r_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8)}
+function emptyProfile(){
+  return {schema:'2.0',userId:uid(),createdAt:new Date().toISOString(),sessions:0,
+    graph:{},avoidGraph:{},feedback:[],shown:[]};
+}
+function loadProfile(){
+  let raw='';
+  try{if(window.Android&&Android.getProfile) raw=Android.getProfile()||''}catch(e){}
+  if(!raw){try{raw=localStorage.getItem(PROFILE_KEY)||''}catch(e){}}
+  if(raw){try{profile=JSON.parse(raw)}catch(e){profile=null}}
+  if(!profile){
+    profile=emptyProfile();
+    try{
+      const legacy=JSON.parse(localStorage.getItem(LEGACY_KEY)||'[]');
+      for(const s of legacy) for(const r of (s.recommendations||[])){
+        const v=r.feedback&&r.feedback.value;
+        if(v!==null&&v!==undefined) profile.feedback.push({legacy:true,title:r.title,value:v,mode:r.feedback.mode});
+      }
+    }catch(e){}
+  }
+  profile.graph=profile.graph||{}; profile.avoidGraph=profile.avoidGraph||{};
+  profile.feedback=profile.feedback||[]; profile.shown=profile.shown||[];
+  profile.sessions=Number(profile.sessions||0);
+}
+function persist(){
+  const raw=JSON.stringify(profile);
+  try{localStorage.setItem(PROFILE_KEY,raw)}catch(e){}
+  try{if(window.Android&&Android.saveProfile) Android.saveProfile(raw)}catch(e){}
+}
+function clamp(v,min=-8,max=8){return Math.max(min,Math.min(max,v))}
+function mergeGraph(base,delta,decay=.92){
+  const out={...base};
+  for(const [k,v] of Object.entries(delta)) out[k]=clamp((Number(out[k])||0)*decay+Number(v||0));
+  return out;
+}
+function uncertainty(k){
+  const stable=Math.abs(Number(profile.graph[k]||0));
+  const avoid=Math.abs(Number(profile.avoidGraph[k]||0));
+  return 1/(1+stable+avoid);
+}
+function chooseQuestions(){
+  const scored=Q.map((q,idx)=>{
+    const u=(uncertainty(q[3])+uncertainty(q[4]))/2;
+    const novelty=1/(1+sessionAnswers.filter(a=>a.relation===q[3]||a.relation===q[4]).length);
+    return {idx,score:u*.7+novelty*.3};
+  }).sort((a,b)=>b.score-a.score);
+  const limit=profile.sessions===0?Q.length:Math.min(8,Q.length);
+  return scored.slice(0,limit).map(x=>x.idx);
+}
+function start(){
+  sessionGraph={}; sessionAnswers=[]; ratings={}; recs=[]; qpos=0; questionOrder=chooseQuestions();
+  app.innerHTML=`<div class="card"><h1>Твоя карта резонансу</h1><p class="muted">V2 відновлює не список тегів, а зв'язки між темами, стилем, темпом і типом конфлікту.</p><div class="note">Наступні стимули адаптуються до того, де модель найменш упевнена. WHAT і HOW навчаються окремо через граф сигналів.</div><button class="primary" onclick="show()">Почати</button></div>`;
+}
+function show(){
+  const idx=questionOrder[qpos], q=Q[idx];
+  app.innerHTML=`<div class="card"><div class="muted">Стимул ${qpos+1} з ${questionOrder.length}</div><div class="bar"><div class="fill" style="width:${qpos/questionOrder.length*100}%"></div></div><div class="q">${q[0]}</div><button class="opt" onclick="ans(0)">${q[1]}</button><button class="opt" onclick="ans(1)">${q[2]}</button><div class="muted small" style="margin-top:16px">Можеш пропустити, якщо жоден варіант не відгукується.</div><button class="secondary" style="margin-top:8px" onclick="skip()">Жоден / пропустити</button></div>`;
+}
+function ans(x){
+  const q=Q[questionOrder[qpos]], rel=q[3+x];
+  const delta={}; delta[rel]=1;
+  sessionGraph=mergeGraph(sessionGraph,delta,1);
+  sessionAnswers.push({stimulus:questionOrder[qpos]+1,choice:x+1,relation:rel,skipped:false});
+  qpos++; qpos<questionOrder.length?show():result();
+}
+function skip(){
+  sessionAnswers.push({stimulus:questionOrder[qpos]+1,choice:null,relation:null,skipped:true});
+  qpos++; qpos<questionOrder.length?show():result();
+}
+function score(b){
+  let total=0,parts=[];
+  for(const [k,w] of Object.entries(b[2]||{})){
+    const stable=Number(profile.graph[k]||0);
+    const current=Number(sessionGraph[k]||0);
+    const avoid=Number(profile.avoidGraph[k]||0);
+    const signal=.5+.5*Math.tanh((stable+current*.8-avoid*.6)/2);
+    const hit=Number(w)*signal;
+    if(hit>0){total+=hit;parts.push([k,+hit.toFixed(3)])}
+  }
+  return {total,parts:parts.sort((a,b)=>b[1]-a[1])};
+}
+function role(kind){return kind===0?'DIRECT MATCH':kind===1?'BRIDGE':'DISCOVERY'}
+function selectRecommendations(){
+  const ranked=B.map((b,n)=>({b,n,...score(b)})).sort((a,b)=>b.total-a.total);
+  const unseen=ranked.filter(x=>!profile.shown.includes(x.n));
+  const pool=unseen.length>=3?unseen:ranked;
+  if(pool.length<3)return pool;
+  const direct=pool[0];
+  const bridge=pool[Math.min(1,pool.length-1)];
+  const discovery=pool[Math.min(2,pool.length-1)];
+  return [{...direct,kind:0},{...bridge,kind:1},{...discovery,kind:2}];
+}
+function result(){
+  recs=selectRecommendations(); window.recs=recs;
+  app.innerHTML=`<div class="card result-head"><h1>Твоя карта резонансу</h1><p class="muted">V2: стабільний смак, поточний стан і avoid-сигнали рахуються окремо; рекомендації використовують зв'язки графа.</p><div>${Object.entries({...profile.graph,...sessionGraph}).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,8).map(([k,v])=>`<span class="tag">${k.replaceAll('_',' ')} · ${Number(v).toFixed(1)}</span>`).join('')}</div><div class="statrow"><div class="stat"><span class="muted">Сесій</span><b>${profile.sessions}</b></div><div class="stat"><span class="muted">Сигналів</span><b>${sessionAnswers.filter(a=>!a.skipped).length}</b></div></div></div><div class="card"><h2>Рекомендації</h2><p class="muted"><b>Direct match</b> — прямий резонанс. <b>Bridge</b> — спільний глибинний патерн з іншою формою. <b>Discovery</b> — контрольований вихід за межі відомого.</p>${recs.map((x,idx)=>bookCard(x,idx)).join('')}<div class="note">Для непрочитаної книги оцінюй бажання прочитати. Для прочитаної — реальне враження. Негативний сигнал окремо оновлює avoid-граф.</div><div class="actions"><button class="primary" onclick="save()">Зберегти відгук</button><button class="secondary" onclick="restart()">Нова сесія</button></div><div id="saved"></div></div>`;
+}
+function bookCard(x,idx){
+  return `<div class="book"><span class="pill">${role(idx)}</span><div class="title" style="margin-top:10px">${x.b[0]}</div><div class="author">${x.b[1]}</div><div class="score">Прогноз резонансу · ${Math.round(Math.max(0,Math.min(1,x.total/2))*100)}%</div><div class="bar" style="margin:9px 0 12px"><div class="fill" style="width:${Math.round(Math.max(0,Math.min(1,x.total/2))*100)}%"></div></div><div class="desc">${x.b[3]}</div><div class="feedback"><div class="feedback-title">1. Ти читав цю книгу?</div><button id="unread-${x.n}" onclick="setMode(${x.n},'unread',this)">Не читав</button><button id="read-${x.n}" onclick="setMode(${x.n},'read',this)">Читав</button><div id="rate-${x.n}"></div></div></div>`;
+}
 const unreadOpts=[['Не цікаво',0],['Трохи цікаво',1],['Цікаво',2],['Дуже цікаво',3]];
 const readOpts=[['Не сподобалась',0],['Скоріше не сподобалась',1],['Сподобалась',2],['Дуже сподобалась',3]];
-function setMode(n,mode,btn){let box=btn.parentElement;box.querySelectorAll('button').forEach(b=>{if(b.id!==`read-${n}`&&b.id!==`unread-${n}`){} });document.getElementById(`read-${n}`).classList.toggle('sel',mode==='read');document.getElementById(`unread-${n}`).classList.toggle('sel',mode==='unread');ratings[n]={mode,value:null};renderRates(n,mode)}
-function renderRates(n,mode){let opts=mode==='read'?readOpts:unreadOpts;document.getElementById('rate-'+n).innerHTML=`<div class="feedback-title">2. ${mode==='read'?'Наскільки сподобалась?':'Наскільки хочеться прочитати?'}</div>`+opts.map(x=>`<button onclick="rate(${n},'${mode}',${x[1]},this)">${x[0]}</button>`).join('')}
-function rate(n,mode,v,b){b.parentElement.querySelectorAll('button').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');ratings[n]={mode,value:v}}
-function save(){if(Object.keys(ratings).length<3||Object.values(ratings).some(x=>x.value===null)){alert('Для кожної з 3 книг вибери «Читав / Не читав» і другу відповідь.');return}let out={product:'Resonance Book Match',version:'product-1.0',timestamp:new Date().toISOString(),answers,graph:g,recommendations:z.map(x=>({title:x.b[0],author:x.b[1],role:role(x.n),model_score:+x.total.toFixed(3),match_components:x.parts,feedback:ratings[x.n]}))};let all=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');all.push(out);localStorage.setItem(STORAGE_KEY,JSON.stringify(all));let filename='resonance-feedback-'+Date.now()+'.json';if(window.Android&&Android.saveJson){Android.saveJson(JSON.stringify(out,null,2),filename);document.getElementById('saved').innerHTML=`<div class="saved">JSON передано Android для збереження у Downloads: <b>${filename}</b></div>`}else{let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(out,null,2)],{type:'application/json'}));a.download=filename;a.click();document.getElementById('saved').innerHTML=`<div class="saved">JSON підготовлено для завантаження: <b>${filename}</b></div>`}}
-function restart(){i=0;g={};answers=[];ratings={};start()}
-window.onJsonSaved=function(message){document.getElementById('saved').innerHTML=`<div class="saved">${message}</div>`;}
-start();
+function setMode(n,mode,btn){
+  document.getElementById(`read-${n}`).classList.toggle('sel',mode==='read');
+  document.getElementById(`unread-${n}`).classList.toggle('sel',mode==='unread');
+  ratings[n]={mode,value:null}; renderRates(n,mode);
+}
+function renderRates(n,mode){
+  const opts=mode==='read'?readOpts:unreadOpts;
+  document.getElementById('rate-'+n).innerHTML=`<div class="feedback-title">2. ${mode==='read'?'Наскільки сподобалась?':'Наскільки хочеться прочитати?'}</div>`+opts.map(x=>`<button onclick="rate(${n},'${mode}',${x[1]},this)">${x[0]}</button>`).join('');
+}
+function rate(n,mode,v,b){
+  b.parentElement.querySelectorAll('button').forEach(x=>x.classList.remove('sel')); b.classList.add('sel');
+  ratings[n]={mode,value:v};
+}
+function applyFeedback(rec,fb){
+  const signal=(Number(fb.value)-1.5)/1.5;
+  const delta={};
+  for(const [k,w] of Object.entries(rec.b[2]||{})){
+    const d=signal*Number(w);
+    if(d>=0) delta[k]=(delta[k]||0)+d;
+    else profile.avoidGraph[k]=clamp((Number(profile.avoidGraph[k])||0)+(-d));
+  }
+  if(signal>=0) profile.graph=mergeGraph(profile.graph,delta,.92);
+}
+function save(){
+  if(Object.keys(ratings).length<recs.length||Object.values(ratings).some(x=>x.value===null)){alert('Для кожної книги вибери «Читав / Не читав» і другу відповідь.');return}
+  const feedbackRows=[];
+  for(const r of recs){
+    const fb=ratings[r.n];
+    applyFeedback(r,fb);
+    feedbackRows.push({title:r.b[0],author:r.b[1],role:role(recs.indexOf(r)),model_score:+r.total.toFixed(3),match_components:r.parts,feedback:fb});
+    if(!profile.shown.includes(r.n)) profile.shown.push(r.n);
+  }
+  profile.shown=profile.shown.slice(-Math.max(50,B.length));
+  profile.sessions++;
+  profile.feedback.push({timestamp:new Date().toISOString(),session:profile.sessions,answers:sessionAnswers,recommendations:feedbackRows,graph:{...sessionGraph}});
+  profile.feedback=profile.feedback.slice(-MAX_HISTORY);
+  profile.graph=mergeGraph(profile.graph,sessionGraph,.92);
+  persist();
+  const out={product:'Resonance Book Match',version:'V2',timestamp:new Date().toISOString(),userId:profile.userId,session:profile.sessions,answers:sessionAnswers,graph:profile.graph,avoidGraph:profile.avoidGraph,recommendations:feedbackRows};
+  const filename='resonance-v2-'+Date.now()+'.json';
+  if(window.Android&&Android.saveJson){Android.saveJson(JSON.stringify(out,null,2),filename);document.getElementById('saved').innerHTML=`<div class="saved">V2-профіль оновлено. JSON передано Android: <b>${filename}</b></div>`}
+  else{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(out,null,2)],{type:'application/json'}));a.download=filename;a.click();document.getElementById('saved').innerHTML=`<div class="saved">V2-профіль оновлено. JSON підготовлено: <b>${filename}</b></div>`}
+}
+function restart(){start()}
+window.onJsonSaved=function(message){const el=document.getElementById('saved');if(el)el.innerHTML=`<div class="saved">${message}</div>`}
+loadProfile(); start();
+
 </script></body></html>
