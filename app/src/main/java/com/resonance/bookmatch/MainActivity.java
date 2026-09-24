@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.content.ContentValues;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.webkit.JavascriptInterface;
@@ -26,6 +27,8 @@ public class MainActivity extends Activity {
     private WebView webView;
     private String pendingJson;
     private String pendingFilename;
+    private static final String PROFILE_PREFS = "resonance.profile";
+    private static final String PROFILE_KEY = "json";
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -84,6 +87,16 @@ public class MainActivity extends Activity {
     }
 
     public class AndroidBridge {
+        @JavascriptInterface
+        public String getProfile() {
+            return getSharedPreferences(PROFILE_PREFS, MODE_PRIVATE).getString(PROFILE_KEY, "");
+        }
+
+        @JavascriptInterface
+        public void saveProfile(String raw) {
+            getSharedPreferences(PROFILE_PREFS, MODE_PRIVATE).edit().putString(PROFILE_KEY, raw).apply();
+        }
+
         @JavascriptInterface
         public void saveJson(String json, String filename) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE") != PackageManager.PERMISSION_GRANTED) {
